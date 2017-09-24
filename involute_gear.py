@@ -11,7 +11,7 @@ class DimensionException(Exception):
 
 class InvoluteGear:
     def __init__(self, module=1, teeth=30, pressure_angle_deg=20, fillet=0, backlash=0,
-                 max_steps=500, arc_step_size=0.025, ring=False):
+                 max_steps=100, arc_step_size=0.1, ring=False):
         '''
         Construct an involute gear, ready for generation using one of the generation methods.
         :param module: The 'module' of the gear. (Diameter / Teeth)
