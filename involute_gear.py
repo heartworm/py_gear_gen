@@ -4,7 +4,7 @@ from mathutils import *
 import sys
 from svgwrite.path import Path
 from svgwrite import mm, Drawing
-
+import ezdxf
 
 class DimensionException(Exception):
     pass
@@ -189,5 +189,16 @@ class InvoluteGear:
         dwg.add(p)
         return dwg
 
+    def get_dxf(self):
+        points = self.get_point_list()
+
+        doc = ezdxf.new('R2010')
+        doc.header['$MEASUREMENT'] = 1
+        doc.header['$INSUNITS'] = 4
+        msp = doc.modelspace()
+
+        msp.add_lwpolyline(points, dxfattribs = {'closed': True})
+        return doc
+    
 def error_out(s, *args):
     sys.stderr.write(s + "\n")
