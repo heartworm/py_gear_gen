@@ -16,8 +16,8 @@ points_gear = np.dot(rotation_matrix(gear.theta_tooth_and_gap / 2), gear.generat
 points_gear2 = gear2.generate_gear()
 points_gear3 = gear3.generate_gear()
 
-gear.get_svg().saveas('sun.svg')
-gear2.get_svg().saveas('planet.svg')
+gear.get_svg().saveas('planet.svg')
+gear2.get_svg().saveas('sun.svg')
 gear3.get_svg().saveas('ring.svg')
 
 plt.plot(points_gear[0,:], points_gear[1,:])
