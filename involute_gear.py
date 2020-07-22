@@ -11,7 +11,7 @@ class DimensionException(Exception):
 
 class InvoluteGear:
     def __init__(self, module=1, teeth=30, pressure_angle_deg=20, fillet=0, backlash=0,
-                 max_steps=100, arc_step_size=0.1, ring=False):
+                 max_steps=100, arc_step_size=0.1, reduction_tolerance_deg=0, ring=False):
         '''
         Construct an involute gear, ready for generation using one of the generation methods.
         :param module: The 'module' of the gear. (Diameter / Teeth)
@@ -25,6 +25,7 @@ class InvoluteGear:
         '''
 
         pressure_angle = radians(pressure_angle_deg)
+        self.reduction_tolerance = radians(reduction_tolerance_deg)
         self.module = module
         self.teeth = teeth
         self.pressure_angle = pressure_angle
@@ -66,6 +67,36 @@ class InvoluteGear:
 
         self.max_steps = max_steps
         self.arc_step_size = arc_step_size
+
+    '''
+    Reduces a line of many points to less points depending on the allowed angle tolerance
+    '''
+    def reduce_polyline(self, polyline):
+        vertices = [[],[]]
+        last_vertex = [polyline[0][0], polyline[1][0]]
+
+        # Look through all vertices except start and end vertex
+        # Calculate by how much the lines before and after the vertex
+        # deviate from a straight path.
+        # If the deviation angle exceeds the specification, store it
+        for vertex_idx in range(1, len(polyline[0])-1):
+            next_slope = np.arctan2(    polyline[1][vertex_idx+1] - polyline[1][vertex_idx+0],
+                                        polyline[0][vertex_idx+1] - polyline[0][vertex_idx+0]   )
+            prev_slope = np.arctan2(    polyline[1][vertex_idx-0] - last_vertex[1],
+                                        polyline[0][vertex_idx-0] - last_vertex[0]   )
+
+            deviation_angle = abs(prev_slope - next_slope)
+
+            if (deviation_angle > self.reduction_tolerance):
+                vertices[0] += [polyline[0][vertex_idx]]
+                vertices[1] += [polyline[1][vertex_idx]]
+                last_vertex = [polyline[0][vertex_idx], polyline[1][vertex_idx]]
+
+        # Return vertices along with first and last point of the original polyline
+        return np.array([
+            np.concatenate([ [polyline[0][0]], vertices[0], [polyline[0][-1]] ]),
+            np.concatenate([ [polyline[1][0]], vertices[1], [polyline[1][-1]] ])
+        ])
 
     def generate_half_tooth(self):
         '''
@@ -129,19 +160,26 @@ class InvoluteGear:
             points_root.append(polar_to_cart((r, theta)))
 
         self.root = np.transpose(points_root)
-        return self.root
+        self.root_reduced = self.reduce_polyline(self.root)
+        return self.root_reduced
 
     def generate_tooth(self):
         '''
         Generate only one involute tooth, without an accompanying tooth gap
         :return: A numpy array, of the format [[x1, x2, ... , xn], [y1, y2, ... , yn]]
         '''
-
-        points_first_half = self.generate_half_tooth()
-        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), points_first_half))
+        self.half_tooth = self.generate_half_tooth()
+        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), self.half_tooth))
         points_second_half = np.flip(points_second_half, 1)
-        self.tooth = np.concatenate((points_first_half, points_second_half), axis=1)
-        return self.tooth
+        self.tooth = np.concatenate((self.half_tooth, points_second_half), axis=1)
+
+        # Generate a second set of point-reduced teeth
+        self.half_tooth_reduced = self.reduce_polyline(self.half_tooth)
+        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), self.half_tooth_reduced))
+        points_second_half = np.flip(points_second_half, 1)
+        self.tooth_reduced = np.concatenate((self.half_tooth_reduced, points_second_half), axis=1)
+
+        return self.tooth_reduced
 
     def generate_tooth_and_gap(self):
         '''
