@@ -134,15 +134,15 @@ class InvoluteGear:
 
         return np.transpose(points)
 
-    def generate_root(self):
+    def generate_half_root(self):
         '''
-        Generate the gap between teeth, for the first tooth
+        Generate half of the gap between teeth, for the first tooth
         :return: A numpy array, of the format [[x1, x2, ... , xn], [y1, y2, ... , yn]]
         '''
         root_arc_length = (self.theta_tooth_and_gap - self.theta_full_tooth) * self.root_radius
 
         points_root = []
-        for theta in np.arange(self.theta_full_tooth, self.theta_tooth_and_gap, self.arc_step_size / self.root_radius):
+        for theta in np.arange(self.theta_full_tooth, self.theta_tooth_and_gap/2 + self.theta_full_tooth/2, self.arc_step_size / self.root_radius):
             # The current circumfrential position we are in the root arc, starting from 0
             arc_position = (theta - self.theta_full_tooth) * self.root_radius
             # If we are in the extemities of the root arc (defined by fillet_radius), then we are in a fillet
@@ -158,10 +158,26 @@ class InvoluteGear:
                 r = r + (self.fillet_radius - sqrt(pow(self.fillet_radius, 2) - pow(self.fillet_radius - circle_pos, 2)))
             points_root.append(polar_to_cart((r, theta)))
 
-        self.root = np.transpose(points_root)
-        self.root = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.root)
-        self.root_reduced = self.reduce_polyline(self.root)
-        return self.root_reduced
+        return np.transpose(points_root)
+
+    def generate_roots(self):
+        '''
+        Generate both roots on either side of the first tooth
+        :return: A numpy array, of the format [ [[x01, x02, ... , x0n], [y01, y02, ... , y0n]], [[x11, x12, ... , x1n], [y11, y12, ... , y1n]] ]
+        '''
+        self.half_root = self.generate_half_root()
+        self.half_root = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.half_root)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_root)
+        points_second_half = np.flip(points_second_half, 1)
+        self.roots = [points_second_half, self.half_root]
+
+        # Generate a second set of point-reduced root
+        self.half_root_reduced = self.reduce_polyline(self.half_root)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_root_reduced)
+        points_second_half = np.flip(points_second_half, 1)
+        self.roots_reduced = [points_second_half, self.half_root_reduced]
+
+        return self.roots_reduced
 
     def generate_tooth(self):
         '''
@@ -189,8 +205,8 @@ class InvoluteGear:
         '''
 
         points_tooth = self.generate_tooth()
-        points_root = self.generate_root()
-        self.tooth_and_gap = np.concatenate((points_tooth, points_root), axis=1)
+        points_roots = self.generate_roots()
+        self.tooth_and_gap = np.concatenate((points_roots[0], points_tooth, points_roots[1]), axis=1)
         return self.tooth_and_gap
 
     def generate_gear(self):
