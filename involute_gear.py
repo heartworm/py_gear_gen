@@ -101,7 +101,8 @@ class InvoluteGear:
         if not reached_limit:
             raise Exception("Couldn't complete tooth profile.")
 
-        return np.transpose(points)
+        self.half_tooth = np.transpose(points)
+        return self.half_tooth
 
     def generate_root(self):
         '''
@@ -126,7 +127,9 @@ class InvoluteGear:
                 circle_pos = min(arc_position, (root_arc_length - arc_position))
                 r = r + (self.fillet_radius - sqrt(pow(self.fillet_radius, 2) - pow(self.fillet_radius - circle_pos, 2)))
             points_root.append(polar_to_cart((r, theta)))
-        return np.transpose(points_root)
+
+        self.root = np.transpose(points_root)
+        return self.root
 
     def generate_tooth(self):
         '''
@@ -137,7 +140,8 @@ class InvoluteGear:
         points_first_half = self.generate_half_tooth()
         points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), points_first_half))
         points_second_half = np.flip(points_second_half, 1)
-        return np.concatenate((points_first_half, points_second_half), axis=1)
+        self.tooth = np.concatenate((points_first_half, points_second_half), axis=1)
+        return self.tooth
 
     def generate_tooth_and_gap(self):
         '''
@@ -148,7 +152,8 @@ class InvoluteGear:
         points_tooth = self.generate_tooth()
         points_root = self.generate_root()
         points_module = np.concatenate((points_tooth, points_root), axis=1)
-        return points_module
+        self.tooth_and_gap = np.concatenate((points_tooth, points_root), axis=1)
+        return self.tooth_and_gap
 
     def generate_gear(self):
         '''
