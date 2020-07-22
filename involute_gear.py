@@ -132,8 +132,7 @@ class InvoluteGear:
         if not reached_limit:
             raise Exception("Couldn't complete tooth profile.")
 
-        self.half_tooth = np.transpose(points)
-        return self.half_tooth
+        return np.transpose(points)
 
     def generate_root(self):
         '''
@@ -160,6 +159,7 @@ class InvoluteGear:
             points_root.append(polar_to_cart((r, theta)))
 
         self.root = np.transpose(points_root)
+        self.root = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.root)
         self.root_reduced = self.reduce_polyline(self.root)
         return self.root_reduced
 
@@ -169,13 +169,14 @@ class InvoluteGear:
         :return: A numpy array, of the format [[x1, x2, ... , xn], [y1, y2, ... , yn]]
         '''
         self.half_tooth = self.generate_half_tooth()
-        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), self.half_tooth))
+        self.half_tooth = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.half_tooth)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_tooth)
         points_second_half = np.flip(points_second_half, 1)
         self.tooth = np.concatenate((self.half_tooth, points_second_half), axis=1)
 
         # Generate a second set of point-reduced teeth
         self.half_tooth_reduced = self.reduce_polyline(self.half_tooth)
-        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), self.half_tooth_reduced))
+        points_second_half = np.dot(flip_matrix(False, True), self.half_tooth_reduced)
         points_second_half = np.flip(points_second_half, 1)
         self.tooth_reduced = np.concatenate((self.half_tooth_reduced, points_second_half), axis=1)
 
@@ -189,7 +190,6 @@ class InvoluteGear:
 
         points_tooth = self.generate_tooth()
         points_root = self.generate_root()
-        points_module = np.concatenate((points_tooth, points_root), axis=1)
         self.tooth_and_gap = np.concatenate((points_tooth, points_root), axis=1)
         return self.tooth_and_gap
 
@@ -202,7 +202,6 @@ class InvoluteGear:
         points_tooth_and_gap = self.generate_tooth_and_gap()
         points_teeth = [np.dot(rotation_matrix(self.theta_tooth_and_gap * n), points_tooth_and_gap) for n in range(self.teeth)]
         points_gear = np.concatenate(points_teeth, axis=1)
-        points_gear = np.dot(rotation_matrix(-self.theta_full_tooth / 2), points_gear)
         return points_gear
 
     def get_point_list(self):
