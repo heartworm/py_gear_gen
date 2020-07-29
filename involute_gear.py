@@ -11,7 +11,7 @@ class DimensionException(Exception):
 
 class InvoluteGear:
     def __init__(self, module=1, teeth=30, pressure_angle_deg=20, fillet=0, backlash=0,
-                 max_steps=100, arc_step_size=0.1, reduction_tolerance_deg=0, ring=False):
+                 max_steps=100, arc_step_size=0.1, reduction_tolerance_deg=0, dedendum_factor=1.157, addendum_factor=1.0, ring=False):
         '''
         Construct an involute gear, ready for generation using one of the generation methods.
         :param module: The 'module' of the gear. (Diameter / Teeth)
@@ -31,9 +31,9 @@ class InvoluteGear:
         self.pressure_angle = pressure_angle
 
         # Addendum is the height above the pitch circle that the tooth extends to
-        self.addendum = module
+        self.addendum = addendum_factor * module
         # Dedendum is the depth below the pitch circle the root extends to. 1.157 is a std value allowing for clearance.
-        self.dedendum = 1.157 * module
+        self.dedendum = dedendum_factor * module
 
         # If the gear is a ring gear, then the clearance needs to be on the other side
         if ring:
