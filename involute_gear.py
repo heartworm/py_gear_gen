@@ -4,14 +4,14 @@ from mathutils import *
 import sys
 from svgwrite.path import Path
 from svgwrite import mm, Drawing
-
+import ezdxf
 
 class DimensionException(Exception):
     pass
 
 class InvoluteGear:
     def __init__(self, module=1, teeth=30, pressure_angle_deg=20, fillet=0, backlash=0,
-                 max_steps=100, arc_step_size=0.1, ring=False):
+                 max_steps=100, arc_step_size=0.1, reduction_tolerance_deg=0, dedendum_factor=1.157, addendum_factor=1.0, ring=False):
         '''
         Construct an involute gear, ready for generation using one of the generation methods.
         :param module: The 'module' of the gear. (Diameter / Teeth)
@@ -25,14 +25,15 @@ class InvoluteGear:
         '''
 
         pressure_angle = radians(pressure_angle_deg)
+        self.reduction_tolerance = radians(reduction_tolerance_deg)
         self.module = module
         self.teeth = teeth
         self.pressure_angle = pressure_angle
 
         # Addendum is the height above the pitch circle that the tooth extends to
-        self.addendum = module
+        self.addendum = addendum_factor * module
         # Dedendum is the depth below the pitch circle the root extends to. 1.157 is a std value allowing for clearance.
-        self.dedendum = 1.157 * module
+        self.dedendum = dedendum_factor * module
 
         # If the gear is a ring gear, then the clearance needs to be on the other side
         if ring:
@@ -66,6 +67,36 @@ class InvoluteGear:
 
         self.max_steps = max_steps
         self.arc_step_size = arc_step_size
+
+    '''
+    Reduces a line of many points to less points depending on the allowed angle tolerance
+    '''
+    def reduce_polyline(self, polyline):
+        vertices = [[],[]]
+        last_vertex = [polyline[0][0], polyline[1][0]]
+
+        # Look through all vertices except start and end vertex
+        # Calculate by how much the lines before and after the vertex
+        # deviate from a straight path.
+        # If the deviation angle exceeds the specification, store it
+        for vertex_idx in range(1, len(polyline[0])-1):
+            next_slope = np.arctan2(    polyline[1][vertex_idx+1] - polyline[1][vertex_idx+0],
+                                        polyline[0][vertex_idx+1] - polyline[0][vertex_idx+0]   )
+            prev_slope = np.arctan2(    polyline[1][vertex_idx-0] - last_vertex[1],
+                                        polyline[0][vertex_idx-0] - last_vertex[0]   )
+
+            deviation_angle = abs(prev_slope - next_slope)
+
+            if (deviation_angle > self.reduction_tolerance):
+                vertices[0] += [polyline[0][vertex_idx]]
+                vertices[1] += [polyline[1][vertex_idx]]
+                last_vertex = [polyline[0][vertex_idx], polyline[1][vertex_idx]]
+
+        # Return vertices along with first and last point of the original polyline
+        return np.array([
+            np.concatenate([ [polyline[0][0]], vertices[0], [polyline[0][-1]] ]),
+            np.concatenate([ [polyline[1][0]], vertices[1], [polyline[1][-1]] ])
+        ])
 
     def generate_half_tooth(self):
         '''
@@ -103,15 +134,15 @@ class InvoluteGear:
 
         return np.transpose(points)
 
-    def generate_root(self):
+    def generate_half_root(self):
         '''
-        Generate the gap between teeth, for the first tooth
+        Generate half of the gap between teeth, for the first tooth
         :return: A numpy array, of the format [[x1, x2, ... , xn], [y1, y2, ... , yn]]
         '''
         root_arc_length = (self.theta_tooth_and_gap - self.theta_full_tooth) * self.root_radius
 
         points_root = []
-        for theta in np.arange(self.theta_full_tooth, self.theta_tooth_and_gap, self.arc_step_size / self.root_radius):
+        for theta in np.arange(self.theta_full_tooth, self.theta_tooth_and_gap/2 + self.theta_full_tooth/2, self.arc_step_size / self.root_radius):
             # The current circumfrential position we are in the root arc, starting from 0
             arc_position = (theta - self.theta_full_tooth) * self.root_radius
             # If we are in the extemities of the root arc (defined by fillet_radius), then we are in a fillet
@@ -126,18 +157,46 @@ class InvoluteGear:
                 circle_pos = min(arc_position, (root_arc_length - arc_position))
                 r = r + (self.fillet_radius - sqrt(pow(self.fillet_radius, 2) - pow(self.fillet_radius - circle_pos, 2)))
             points_root.append(polar_to_cart((r, theta)))
+
         return np.transpose(points_root)
+
+    def generate_roots(self):
+        '''
+        Generate both roots on either side of the first tooth
+        :return: A numpy array, of the format [ [[x01, x02, ... , x0n], [y01, y02, ... , y0n]], [[x11, x12, ... , x1n], [y11, y12, ... , y1n]] ]
+        '''
+        self.half_root = self.generate_half_root()
+        self.half_root = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.half_root)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_root)
+        points_second_half = np.flip(points_second_half, 1)
+        self.roots = [points_second_half, self.half_root]
+
+        # Generate a second set of point-reduced root
+        self.half_root_reduced = self.reduce_polyline(self.half_root)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_root_reduced)
+        points_second_half = np.flip(points_second_half, 1)
+        self.roots_reduced = [points_second_half, self.half_root_reduced]
+
+        return self.roots_reduced
 
     def generate_tooth(self):
         '''
         Generate only one involute tooth, without an accompanying tooth gap
         :return: A numpy array, of the format [[x1, x2, ... , xn], [y1, y2, ... , yn]]
         '''
-
-        points_first_half = self.generate_half_tooth()
-        points_second_half = np.dot(rotation_matrix(self.theta_full_tooth), np.dot(flip_matrix(False, True), points_first_half))
+        self.half_tooth = self.generate_half_tooth()
+        self.half_tooth = np.dot(rotation_matrix(-self.theta_full_tooth / 2), self.half_tooth)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_tooth)
         points_second_half = np.flip(points_second_half, 1)
-        return np.concatenate((points_first_half, points_second_half), axis=1)
+        self.tooth = np.concatenate((self.half_tooth, points_second_half), axis=1)
+
+        # Generate a second set of point-reduced teeth
+        self.half_tooth_reduced = self.reduce_polyline(self.half_tooth)
+        points_second_half = np.dot(flip_matrix(False, True), self.half_tooth_reduced)
+        points_second_half = np.flip(points_second_half, 1)
+        self.tooth_reduced = np.concatenate((self.half_tooth_reduced, points_second_half), axis=1)
+
+        return self.tooth_reduced
 
     def generate_tooth_and_gap(self):
         '''
@@ -146,9 +205,9 @@ class InvoluteGear:
         '''
 
         points_tooth = self.generate_tooth()
-        points_root = self.generate_root()
-        points_module = np.concatenate((points_tooth, points_root), axis=1)
-        return points_module
+        points_roots = self.generate_roots()
+        self.tooth_and_gap = np.concatenate((points_roots[0], points_tooth, points_roots[1]), axis=1)
+        return self.tooth_and_gap
 
     def generate_gear(self):
         '''
@@ -159,7 +218,6 @@ class InvoluteGear:
         points_tooth_and_gap = self.generate_tooth_and_gap()
         points_teeth = [np.dot(rotation_matrix(self.theta_tooth_and_gap * n), points_tooth_and_gap) for n in range(self.teeth)]
         points_gear = np.concatenate(points_teeth, axis=1)
-        points_gear = np.dot(rotation_matrix(-self.theta_full_tooth / 2), points_gear)
         return points_gear
 
     def get_point_list(self):
@@ -189,5 +247,16 @@ class InvoluteGear:
         dwg.add(p)
         return dwg
 
+    def get_dxf(self):
+        points = self.get_point_list()
+
+        doc = ezdxf.new('R2010')
+        doc.header['$MEASUREMENT'] = 1
+        doc.header['$INSUNITS'] = 4
+        msp = doc.modelspace()
+
+        msp.add_lwpolyline(points, dxfattribs = {'closed': True})
+        return doc
+    
 def error_out(s, *args):
     sys.stderr.write(s + "\n")
